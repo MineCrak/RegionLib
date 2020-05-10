@@ -23,20 +23,21 @@
  */
 package cubicchunks.regionlib.lib.provider;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Iterator;
-import java.util.Optional;
-
-import cubicchunks.regionlib.api.region.key.IKey;
-import cubicchunks.regionlib.api.region.IRegionProvider;
 import cubicchunks.regionlib.api.region.IRegion;
+import cubicchunks.regionlib.api.region.IRegionProvider;
+import cubicchunks.regionlib.api.region.key.IKey;
 import cubicchunks.regionlib.api.region.key.IKeyProvider;
 import cubicchunks.regionlib.api.region.key.RegionKey;
 import cubicchunks.regionlib.lib.Region;
 import cubicchunks.regionlib.util.CheckedConsumer;
 import cubicchunks.regionlib.util.CheckedFunction;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Iterator;
+import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * A simple implementation of IRegionProvider, this is intended to be used together with CachedRegionProvider or other
@@ -49,11 +50,14 @@ public class SimpleRegionProvider<K extends IKey<K>> implements IRegionProvider<
 	private final IKeyProvider<K> keyProvider;
 	private final Path directory;
 	private final RegionFactory<K> regionBuilder;
+	private final SimpleRegionProvider.RegionExistsPredicate<K> regionExists;
 
-	public SimpleRegionProvider(IKeyProvider<K> keyProvider, Path directory, RegionFactory<K> regionBuilder) {
+	public SimpleRegionProvider(IKeyProvider<K> keyProvider, Path directory,
+			RegionFactory<K> regionBuilder, RegionExistsPredicate<K> regionExists) {
 		this.keyProvider = keyProvider;
 		this.directory = directory;
 		this.regionBuilder = regionBuilder;
+		this.regionExists = regionExists;
 	}
 
 	@Override
@@ -92,13 +96,12 @@ public class SimpleRegionProvider<K extends IKey<K>> implements IRegionProvider<
 	}
 
 	@Override public IRegion<K> getRegion(K key) throws IOException {
-		Path regionPath = directory.resolve(key.getRegionKey().getName());
 		return regionBuilder.create(keyProvider, key.getRegionKey());
 	}
 
 	@Override public Optional<IRegion<K>> getExistingRegion(K key) throws IOException {
 		Path regionPath = directory.resolve(key.getRegionKey().getName());
-		if (!Files.exists(regionPath)) {
+		if (!regionExists.test(regionPath, key)) {
 			return Optional.empty();
 		}
 		IRegion<K> reg = regionBuilder.create(keyProvider, key.getRegionKey());
@@ -106,17 +109,20 @@ public class SimpleRegionProvider<K extends IKey<K>> implements IRegionProvider<
 	}
 
 	@Override public void forAllRegions(CheckedConsumer<? super IRegion<K>, IOException> consumer) throws IOException {
-		Iterator<Path> it = allRegions();
-		while (it.hasNext()) {
-			Path path = it.next();
-			consumer.accept(regionBuilder.create(keyProvider, new RegionKey(path.getFileName().toString())));
+		try (Stream<Path> stream = Files.list(directory)) {
+			Iterator<RegionKey> it = stream.map(Path::getFileName)
+				.map(Path::toString)
+				.map(RegionKey::new)
+				.filter(keyProvider::isValid)
+				.iterator();
+			while (it.hasNext()) {
+				RegionKey key = it.next();
+				if (!keyProvider.isValid(key)) {
+					continue;
+				}
+				consumer.accept(regionBuilder.create(keyProvider, key));
+			}
 		}
-	}
-
-	protected Iterator<Path> allRegions() throws IOException {
-		return Files.list(directory)
-			.map(Path::getFileName)
-			.iterator();
 	}
 
 	@Override public void close() {
@@ -129,12 +135,18 @@ public class SimpleRegionProvider<K extends IKey<K>> implements IRegionProvider<
 					.setRegionKey(r)
 					.setKeyProvider(keyProv)
 					.setSectorSize(sectorSize)
-					.build()
+					.build(),
+			(dir, key) -> Files.exists(dir.resolve(key.getRegionKey().getName()))
 		);
 	}
 
 	@FunctionalInterface
 	public interface RegionFactory<K extends IKey<K>> {
 		IRegion<K> create(IKeyProvider<K> keyProvider, RegionKey key) throws IOException;
+	}
+
+	@FunctionalInterface
+	public interface RegionExistsPredicate<K extends IKey<K>> {
+		boolean test(Path directory, K key) throws IOException;
 	}
 }

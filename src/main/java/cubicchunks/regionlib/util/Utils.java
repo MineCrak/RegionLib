@@ -21,41 +21,19 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  *  THE SOFTWARE.
  */
-package cubicchunks.regionlib.lib.header;
+package cubicchunks.regionlib.util;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Optional;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
-import java.util.function.Function;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
-import cubicchunks.regionlib.api.region.header.IHeaderDataEntry;
-import cubicchunks.regionlib.api.region.header.IHeaderDataEntryProvider;
-import cubicchunks.regionlib.api.region.key.IKey;
-import cubicchunks.regionlib.lib.RegionEntryLocation;
-
-public interface IKeyIdToSectorMap<
-	H extends IHeaderDataEntry,
-	P extends IHeaderDataEntryProvider<H, K>,
-	K extends IKey<K>> extends Iterable<RegionEntryLocation> {
-
-	default Optional<RegionEntryLocation> getEntryLocation(K key) {
-		return getEntryLocation(key.getId());
-	}
-
-	boolean isSpecial(RegionEntryLocation loc);
-
-	Optional<Function<K, ByteBuffer>> trySpecialValue(K key);
-
-	Optional<RegionEntryLocation> getEntryLocation(int id);
-
-	/**
-	 * @return optional special conflict resolution writer, if this entry location is reserved.
-	 */
-	Optional<BiConsumer<K, ByteBuffer>> setOffsetAndSize(K key, RegionEntryLocation location) throws IOException;
-
-	void setSpecial(K key, Object marker);
-
-	P headerEntryProvider();
+public class Utils {
+    // Files.createDirectories doesn't handle symlinks
+    public static void createDirectories(Path dir) throws IOException {
+        if (Files.isDirectory(dir)) {
+            return;
+        }
+        createDirectories(dir.getParent());
+        Files.createDirectory(dir);
+    }
 }

@@ -82,22 +82,16 @@ public class RegionSectorTracker<K extends IKey<K>> {
 	}
 
 	private RegionEntryLocation findNextFree(int requestedSize) {
-		int currentRun = 0;
-		int currentSector = 0;
+		int next = 0, current, runSize;
 		do {
-			// the first sector is always used no matter what
-			currentSector++;
-			if (isSectorFree(currentSector)) {
-				currentRun++;
-			} else {
-				currentRun = 0;
-			}
-		} while (currentRun != requestedSize);
+			int nextClear = usedSectors.nextClearBit(next);
+			int nextUsed = usedSectors.nextSetBit(nextClear);
+			current = nextClear;
+			next = nextUsed;
+			runSize = nextUsed < 0 ? Integer.MAX_VALUE : nextUsed - nextClear;
+		} while (runSize < requestedSize);
 
-		// go back to the beginning
-		currentSector -= currentRun - 1;
-
-		return new RegionEntryLocation(currentSector, requestedSize);
+		return new RegionEntryLocation(current, requestedSize);
 	}
 
 
@@ -134,6 +128,9 @@ public class RegionSectorTracker<K extends IKey<K>> {
 		}
 		// mark used sectors
 		for (RegionEntryLocation loc : sectorMap) {
+		    if (sectorMap.isSpecial(loc)) {
+		        continue;
+            }
 			int offset = loc.getOffset();
 			int size = loc.getSize();
 			for (int i = 0; i < size; i++) {

@@ -49,7 +49,7 @@ import cubicchunks.regionlib.util.CheckedConsumer;
  * @param <K> The location key type
  */
 public abstract class SaveSection<S extends SaveSection<S, K>, K extends IKey<K>> implements Closeable {
-
+	private static final ByteBuffer DUMMY_EMPTY = ByteBuffer.allocate(0);
 	private final List<IRegionProvider<K>> regionProviders;
 
 	/**
@@ -108,15 +108,18 @@ public abstract class SaveSection<S extends SaveSection<S, K>, K extends IKey<K>
 	 * This Method is thread safe.
 	 *
 	 * @param key The key
+	 * @param createRegion if true, a new region file will be created and cached. This is the preferred option.
 	 * @throws IOException when an unexpected IO error occurs
 	 *
 	 * @return An Optional containing the value if it exists
 	 */
-	public Optional<ByteBuffer> load(K key) throws IOException {
+	public Optional<ByteBuffer> load(K key, boolean createRegion) throws IOException {
 		for (IRegionProvider<K> prov : regionProviders) {
-			Optional<ByteBuffer> opt = prov.fromExistingRegion(key, r -> r.readValue(key)).flatMap(x -> x);
-			if (opt.isPresent()) {
-				return opt;
+			ByteBuffer buf =
+					createRegion ? prov.fromRegion(key, r -> r.readValue(key)).orElse(null)
+							: prov.fromExistingRegion(key, r -> r.readValue(key)).orElse(Optional.of(DUMMY_EMPTY)).orElse(null);
+			if (buf != null) {
+				return buf == DUMMY_EMPTY ? Optional.empty() : Optional.of(buf);
 			}
 		}
 		return Optional.empty();
@@ -137,6 +140,7 @@ public abstract class SaveSection<S extends SaveSection<S, K>, K extends IKey<K>
 			if (i == 0) {
 				p.forAllRegions(reg -> {
 					reg.forEachKey(cons);
+					reg.close();
 				});
 			} else {
 				int max = i;
@@ -154,13 +158,13 @@ public abstract class SaveSection<S extends SaveSection<S, K>, K extends IKey<K>
 						}
 						cons.accept(key);
 					});
+					reg.close();
 				});
 			}
 		}
 	}
 
 	public boolean hasEntry(K key) throws IOException {
-		boolean found = false;
 		for (IRegionProvider<K> prov : this.regionProviders) {
 			if (prov.fromExistingRegion(key, r -> r.hasValue(key)).orElse(false)) {
 				return true;

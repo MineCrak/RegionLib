@@ -23,8 +23,6 @@
  */
 package cubicchunks.regionlib.api.region.key;
 
-import java.util.function.BiFunction;
-
 /**
  * Provides metadata about keys and allows creating keys by region name.
  */
@@ -50,4 +48,6 @@ public interface IKeyProvider<K extends IKey<K>> {
      * @return The number of keys in this region
      */
     int getKeyCount(RegionKey key);
+
+    boolean isValid(RegionKey key);
 }

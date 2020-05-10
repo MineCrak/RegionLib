@@ -21,41 +21,43 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  *  THE SOFTWARE.
  */
-package cubicchunks.regionlib.lib.header;
+package cubicchunks.regionlib;
+
+import static org.junit.Assert.assertEquals;
+
+import cubicchunks.regionlib.impl.EntryLocation3D;
+import cubicchunks.regionlib.impl.SaveCubeColumns;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Optional;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
-import java.util.function.Function;
+import java.nio.file.Path;
+import java.util.Random;
 
-import cubicchunks.regionlib.api.region.header.IHeaderDataEntry;
-import cubicchunks.regionlib.api.region.header.IHeaderDataEntryProvider;
-import cubicchunks.regionlib.api.region.key.IKey;
-import cubicchunks.regionlib.lib.RegionEntryLocation;
+public class TestSaveSectionFallback {
+    @Rule
+    public TemporaryFolder folder = new TemporaryFolder();
 
-public interface IKeyIdToSectorMap<
-	H extends IHeaderDataEntry,
-	P extends IHeaderDataEntryProvider<H, K>,
-	K extends IKey<K>> extends Iterable<RegionEntryLocation> {
+    @Test public void testFallback() throws IOException {
+        Path path = folder.newFolder("save").toPath();
+        SaveCubeColumns save = SaveCubeColumns.create(path);
+        ByteBuffer savedData = getData();
 
-	default Optional<RegionEntryLocation> getEntryLocation(K key) {
-		return getEntryLocation(key.getId());
-	}
+        save.save3d(new EntryLocation3D(0, 0, 0), savedData);
+        ByteBuffer loadedData = save.load(new EntryLocation3D(0, 0, 0), true).get();
 
-	boolean isSpecial(RegionEntryLocation loc);
+        savedData.rewind();
+        assertEquals(savedData, loadedData);
+    }
 
-	Optional<Function<K, ByteBuffer>> trySpecialValue(K key);
-
-	Optional<RegionEntryLocation> getEntryLocation(int id);
-
-	/**
-	 * @return optional special conflict resolution writer, if this entry location is reserved.
-	 */
-	Optional<BiConsumer<K, ByteBuffer>> setOffsetAndSize(K key, RegionEntryLocation location) throws IOException;
-
-	void setSpecial(K key, Object marker);
-
-	P headerEntryProvider();
+    private ByteBuffer getData() {
+        // this exceeds max size of normal region
+        int size = 1024*1024*256;
+        Random rand = new Random(123456789);
+        byte[] bytes = new byte[size];
+        rand.nextBytes(bytes);
+        return ByteBuffer.wrap(bytes);
+    }
 }

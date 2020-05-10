@@ -32,6 +32,7 @@ import java.util.Optional;
 
 import cubicchunks.regionlib.impl.save.SaveSection2D;
 import cubicchunks.regionlib.impl.save.SaveSection3D;
+import cubicchunks.regionlib.util.Utils;
 
 /**
  * A save for 3d and 2d structures, like Cubes and Columns in CubicChunks.
@@ -44,6 +45,14 @@ public class SaveCubeColumns implements Closeable {
 	public SaveCubeColumns(SaveSection2D saveSection2D, SaveSection3D saveSection3D) {
 		this.saveSection2D = saveSection2D;
 		this.saveSection3D = saveSection3D;
+	}
+
+	public SaveSection2D getSaveSection2D() {
+		return saveSection2D;
+	}
+
+	public SaveSection3D getSaveSection3D() {
+		return saveSection3D;
 	}
 
 	/**
@@ -78,12 +87,13 @@ public class SaveCubeColumns implements Closeable {
 	 * This can be accessed from multiple threads. (thread safe)
      *
      * @param location the location of the entry data to load
-     * @throws IOException when an unexpected IO error occurs
+	 * @param createRegion if true, a new region file will be created and cached. This is the preferred option.
+	 * @throws IOException when an unexpected IO error occurs
      *
      * @return An Optional containing the value if it exists
 	 */
-	public Optional<ByteBuffer> load(EntryLocation3D location) throws IOException {
-		return saveSection3D.load(location);
+	public Optional<ByteBuffer> load(EntryLocation3D location, boolean createRegion) throws IOException {
+		return saveSection3D.load(location, createRegion);
 	}
 
 	/**
@@ -92,12 +102,13 @@ public class SaveCubeColumns implements Closeable {
 	 * This can be accessed from multiple threads. (thread safe)
      *
      * @param location the location of the entry data to load
-     * @throws IOException when an unexpected IO error occurs
+	 * @param createRegion if true, a new region file will be created and cached. This is the preferred option.
+	 * @throws IOException when an unexpected IO error occurs
      *
      * @return An Optional containing the value if it exists
 	 */
-	public Optional<ByteBuffer> load(EntryLocation2D location) throws IOException {
-		return saveSection2D.load(location);
+	public Optional<ByteBuffer> load(EntryLocation2D location, boolean createRegion) throws IOException {
+		return saveSection2D.load(location, createRegion);
 	}
 
 	/**
@@ -105,13 +116,13 @@ public class SaveCubeColumns implements Closeable {
      * @throws IOException when an unexpected IO error occurs
 	 */
 	public static SaveCubeColumns create(Path directory) throws IOException {
-		Files.createDirectories(directory);
+		Utils.createDirectories(directory);
 
 		Path part2d = directory.resolve("region2d");
-		Files.createDirectories(part2d);
+		Utils.createDirectories(part2d);
 
 		Path part3d = directory.resolve("region3d");
-		Files.createDirectories(part3d);
+		Utils.createDirectories(part3d);
 
 		SaveSection2D section2d = SaveSection2D.createAt(part2d);
 		SaveSection3D section3d = SaveSection3D.createAt(part3d);

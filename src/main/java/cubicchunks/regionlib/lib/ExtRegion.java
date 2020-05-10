@@ -23,6 +23,7 @@
  */
 package cubicchunks.regionlib.lib;
 
+import cubicchunks.regionlib.UnsupportedDataException;
 import cubicchunks.regionlib.api.region.IRegion;
 import cubicchunks.regionlib.api.region.header.IHeaderDataEntry;
 import cubicchunks.regionlib.api.region.header.IHeaderDataEntryProvider;
@@ -30,6 +31,7 @@ import cubicchunks.regionlib.api.region.key.IKey;
 import cubicchunks.regionlib.api.region.key.IKeyProvider;
 import cubicchunks.regionlib.api.region.key.RegionKey;
 import cubicchunks.regionlib.util.CheckedConsumer;
+import cubicchunks.regionlib.util.Utils;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -40,11 +42,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 // TODO: Optimize?
 public class ExtRegion<K extends IKey<K>> implements IRegion<K> {
@@ -57,12 +61,11 @@ public class ExtRegion<K extends IKey<K>> implements IRegion<K> {
 
     private final BitSet exists;
 
+    private boolean initialized = false;
+
     public ExtRegion(Path saveDirectory, List<IHeaderDataEntryProvider<?, K>> headerData, IKeyProvider<K> keyProvider, RegionKey regionKey)
             throws IOException {
         this.directory = saveDirectory.resolve(regionKey.getName() + ".ext");
-        if (!Files.exists(this.directory)) {
-            Files.createDirectories(this.directory);
-        }
         this.headerData = headerData;
         this.keyProvider = keyProvider;
         this.regionKey = regionKey;
@@ -72,27 +75,44 @@ public class ExtRegion<K extends IKey<K>> implements IRegion<K> {
         }
         this.totalHeaderSize = headerSize;
         this.exists = new BitSet(keyProvider.getKeyCount(regionKey));
-        Files.list(this.directory).forEach(p -> {
-            String name = p.getFileName().toString();
-            try {
-                int i = Integer.parseInt(name);
-                if (i >= 0 && i < keyProvider.getKeyCount(regionKey)) {
-                    exists.set(i);
+        if (!Files.exists(this.directory)) {
+            return;
+        }
+        this.initialized = true;
+        try(Stream<Path> stream = Files.list(this.directory)) {
+            stream.forEach(p -> {
+                String name = p.getFileName().toString();
+                try {
+                    int i = Integer.parseInt(name);
+                    if (i >= 0 && i < keyProvider.getKeyCount(regionKey)) {
+                        exists.set(i);
+                    }
+                } catch (NumberFormatException ex) {
                 }
-            } catch (NumberFormatException ex) {
-            }
-        });
+            });
+        }
     }
 
     @Override public void writeValue(K key, ByteBuffer value) throws IOException {
+        if (value == null && (!initialized || exists.isEmpty() || !exists.get(key.getId()))) {
+            // fast path, make sure we don't create the directory when writing nothing
+            // (SaveSection makes sure to erase ext region is normal write succeeds)
+            return;
+        }
+        if (!initialized) {
+            Utils.createDirectories(this.directory);
+            initialized = true;
+        }
         Path file = directory.resolve(String.valueOf(key.getId()));
         if (!Files.exists(file)) {
             if (value == null) {
+                exists.clear(key.getId());
                 return;
             }
             Files.createFile(file);
         } else if (value == null) {
             Files.delete(file);
+            exists.clear(key.getId());
             return;
         }
 
@@ -108,8 +128,12 @@ public class ExtRegion<K extends IKey<K>> implements IRegion<K> {
         exists.set(key.getId());
     }
 
+    @Override public void writeSpecial(K key, Object marker) throws IOException {
+        throw new UnsupportedOperationException("ExtRegion doesn't support special values");
+    }
+
     @Override public Optional<ByteBuffer> readValue(K key) throws IOException {
-        if (!exists.get(key.getId())) {
+        if (!initialized || !exists.get(key.getId())) {
             return Optional.empty();
         }
         Path file = directory.resolve(String.valueOf(key.getId()));
@@ -117,12 +141,15 @@ public class ExtRegion<K extends IKey<K>> implements IRegion<K> {
             exists.set(key.getId(), false);
             return Optional.empty();
         }
-        int bytes = (int) (Files.size(file) - totalHeaderSize);
-        try (InputStream is = new BufferedInputStream(new FileInputStream(file.toFile()))) {
-            is.skip(totalHeaderSize);
-            byte[] data = new byte[bytes];
-            is.read(data);
-            return Optional.of(ByteBuffer.wrap(data));
+        try (SeekableByteChannel channel = Files.newByteChannel(file)) {
+            long size = channel.size();
+            if (size > Integer.MAX_VALUE) {
+                throw new UnsupportedDataException("Size " + size + " is too big");
+            }
+            ByteBuffer buf = ByteBuffer.wrap(new byte[(int) (size - totalHeaderSize)]);
+            channel.position(totalHeaderSize).read(buf);
+            buf.rewind();
+            return Optional.of(buf);
         }
     }
 
